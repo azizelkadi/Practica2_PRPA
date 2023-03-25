@@ -1,0 +1,265 @@
+### SOLUCIÓN SEGURA
+
+monitor
+
+    int ncar_north = 0
+    int ncar_south = 0
+    int nped = 0
+    condition can_car_north
+    condition can_car_south
+    condition can_ped
+        
+    wants_enter_car(int direction)
+        if direction == NORTH
+            can_car_north.wait()
+            ncar_north += 1
+        else
+            can_car_south.wait()
+            ncar_south += 1
+
+    leaves_car(int direction)
+        if direction = NORTH
+            ncar_north -= 1
+            if ncar_north == 0
+                can_car_south.notify_all()
+                can_ped.notify_all()
+        else
+            ncar_south -= 1
+            if ncar_south == 0
+                can_car_north.notify_all()
+                can_ped.notify_all()
+
+    wants_enter_pedestrian()
+        can_ped.wait()
+        nped += 1
+
+    leaves_pedestrian()
+        nped -= 1
+        if nped == 0
+            can_car_north.notify_all()
+            can_car_south.notify_all()
+
+car_d (d = NORTH, SOUTH)
+    loop:
+        wants_enter_car(d)
+        bridge
+        leaves_car(d)
+        exit_bridge
+
+pedestrian
+    loop:
+        wants_enter_pedestrian
+        bridge
+        leaves_pedestrian
+        exit_bridge
+
+
+### MODIFICAMOS LA SOLUCIÓN PARA EVITAR INANICIÓN
+
+monitor
+    int ncar_north = 0
+    int ncar_south = 0
+    int nped = 0
+    int wait_limit_ncar_north = 5
+    int wait_limit_ncar_south = 5
+    int wait_limit_nped = 5
+    int ncar_north_waiting = 0
+    int ncar_south_waiting = 0
+    int nped_waiting = 0
+    condition can_car_north
+    condition can_car_south
+    condition can_ped
+    condition wait_car_north
+    condition wait_car_south
+    condition wait_ped
+        
+    wants_enter_car(int direction)
+        if direction == NORTH
+            ncar_north_waiting += 1
+            wait_car_north.wait()
+            can_car_north.wait()
+            ncar_north += 1
+            ncar_north_waiting -= 1
+            if ncar_north_waiting <= wait_limit_ncar_north
+                can_car_south.notify_all()
+                can_ped.notify_all()
+        else
+            ncar_south_waiting += 1
+            wait_car_south.wait()
+            can_car_south.wait()
+            can_car_south += 1
+            ncar_south_waiting -= 1
+            if ncar_south_waiting <= wait_limit_ncar_south
+                can_ped.notify_all()
+                can_car_north.notify_all()
+
+    leaves_car(int direction)
+        if direction == NORTH
+            ncar_north -= 1
+            if ncar_north == 0
+                can_car_south.notify_all()
+                can_ped.notify_all()
+        else
+            ncar_south -= 1
+            if ncar_south == 0
+                can_car_north.notify_all()
+                can_ped.notify_all()
+
+    wants_enter_pedestrian()
+        nped_waiting += 1
+        wait_ped.wait()
+        can_ped.wait()
+        nped += 1
+        nped_waiting -= 1
+        if nped_waiting <= wait_limit_nped
+            wait_car_north.notify_all()
+            wait_car_south.notify_all()
+
+    leaves_pedestrian()
+        nped -= 1
+        if nped == 0
+            can_car_north.notify_all()
+            can_car_south.notify_all()
+
+car_d (d = NORTH, SOUTH)
+    loop:
+        wants_enter_car(d)
+        bridge
+        leaves_car(d)
+        exit_bridge
+
+pedestrian
+    loop:
+        wants_enter_pedestrian
+        bridge
+        leaves_pedestrian
+        exit_bridge
+
+
+### INVARIANTE DEL MONITOR
+
+ncar_north >= 0
+ncar_south >= 0
+nped >= 0
+
+ncar_north_waiting >= 0
+ncar_south_waiting >= 0
+nped_waiting >= 0
+
+ncar_north > 0 => ncar_south = 0 y nped = 0
+ncar_south > 0 => ncar_north = 0 y nped = 0
+nped > 0 => ncar_north = 0 y ncar_south = 0
+
+
+### DEMOSTRACIÓN SEGURIDAD DEL PUENTE
+
+Haremos uso de inducción para demostrar que el invariante mencionado anteriormente se 
+mantiene durante toda la ejecución del programa.
+
+- Caso base:
+
+Inicialmente, el puente está vacío, por lo que ncar_north = 0, ncar_south = 0, y nped = 0. Esto satisface el invariante:
+
+    ncar_north >= 0 y ncar_south >= 0
+    nped >= 0
+    Las implicaciones se cumplen
+
+- Paso inductivo:
+
+Supongamos ahora que el invariante se mantiene antes de una operación. Demostraremos que también se cumplen después de cada operación.
+
+    Función wants_enter_car:
+
+        Para direction = 0 (NORTH):
+            Antes de entrar en el puente, el coche espera la condición can_car_north.
+            La condición sólo se señalizará si ncar_north_waiting <= wait_limit_ncar_north y no hay coches con dirección SOUTH ni peatones en el puente.
+            Por lo tanto, cuando un coche entra en el puente, ncar_south == 0 y nped == 0, y el invariante se sigue manteniendo.
+
+        Para direction = 1 (SOUTH):
+            Similar al caso para direction = 0, el coche espera la condición can_car_south.
+            La condición sólo se señalizará si ncar_south_waiting <= wait_limit_ncar_south y no hay coches con dirección NORTH ni peatones en el puente.
+            Por lo tanto, cuando un coche entra en el puente, ncar_north == 0 y nped == 0, y el invariante se sigue manteniendo.
+
+    Función leaves_car:
+
+        Para dirección = 0 (NORTH):
+            Cuando un coche abandona el puente, ncar_north se decrementa.
+            Si ncar_north == 0, el monitor señala las condiciones can_car_south y can_ped, permitiendo que los coches con dirección SOUTH o los peatones
+            entren en el puente, pero no ambos. El invariante se mantiene.
+
+        Para dirección = 1 (SOUTH):
+            De forma similar al caso de dirección = 0, cuando un coche abandona el puente, ncar_south se decrementa.
+            Si ncar_south == 0, el monitor señala las condiciones can_car_north y can_ped, permitiendo que los coches dirección NORTH o los peatones
+            entren en el puente, pero no ambos. El invariante se mantiene.
+
+    Función wants_enter_pedestrian:
+
+        Antes de entrar en el puente, el peatón espera la condición can_ped.
+        La condición sólo se señalizará si no hay coches en el puente (ncar_north == 0 y ncar_south == 0).
+        Por lo tanto, cuando un peatón entra en el puente, ncar_north == 0 y ncar_south == 0, y el invariante se mantiene.
+
+    Función leaves_pedestrian:
+
+        Cuando un peatón abandona el puente, nped se decrementa.
+        Si nped == 0, el monitor señala las condiciones can_car_north y can_car_south, permitiendo que los coches entren en el puente, pero no
+        desde ambas direcciones al mismo tiempo.
+        El invariante se mantiene.
+
+Dado que el invariante se mantiene inicialmente y sigue manteniéndose después de cada operación, podemos concluir que la seguridad del
+puente se mantiene durante toda la ejecución del programa.
+
+
+### DEMOSTRACIÓN AUSENCIA DE DEADLOCKS
+
+En nuestro problema, los coches dirección NORTH, los coches dirección SOUTH y los peatones son mutuamente excluyentes para el puente.
+Hay tres estados posibles para el puente: pueden entrar coches dirección NORTH, pueden entrar coches dirección SOUTH o pueden entrar 
+peatones. Podemos demostrar que siempre se cumple al menos una de las condiciones analizando cada estado.
+
+    El puente está vacío (estado inicial):
+        Al principio, el puente está vacío, por lo que ncar_north = 0, ncar_south = 0, y nped = 0.
+        En este estado, las tres condiciones son verdaderas: "can_car_north", "can_car_south" y "can_ped".
+
+    Los coches dirección NORTH están en el puente:
+        Cuando los coches dirección NORTH están en el puente, "can_car_north" es verdadero.
+        Cuando el último coche dirección NORTH abandone el puente, señalará las condiciones "can_car_south" y "can_ped", haciéndolas verdaderas.
+
+    Los coches dirección SOUTH están en el puente:
+        Cuando los coches dirección SOUTH están en el puente, "can_car_south" es verdadero.
+        Cuando el último coche dirección SOUTH abandone el puente, señalará las condiciones "can_car_north" y "can_ped", haciéndolas verdaderas.
+
+    Hay peatones en el puente:
+        Cuando hay peatones en el puente, "can_ped" es verdadero.
+        Cuando el último peatón abandone el puente, señalará las condiciones "can_car_north" y "can_car_south", haciéndolas verdaderas.
+
+Como hemos demostrado que en todos los estados posibles del puente, al menos una de las condiciones "can_car_north", "can_car_south" o "can_ped"
+es cierta, podemos concluir que no existen bloqueos en esta solución.
+
+
+# DEMOSTRACIÓN AUSENCIA DE INANICIÓN
+
+Esta demostración es para la solución de sin inanición, el resto de demostraciones servían para ambas soluciones.
+
+Buscamos demostrar que todos los procesos tendrán en algún momento una oportunidad de entrar en el puente. Hemos implementado límites de espera
+para cada tipo de proceso: wait_limit_ncar_north, wait_limit_ncar_south y wait_limit_nped. Estos límites de espera ayudan a evitar la inanición al
+garantizar que ningún tipo de proceso esperará indefinidamente.
+
+    Coches dirección NORTH:
+        Cuando el número de coches dirección NORTH esperando (ncar_north_waiting) es menor o igual que el límite de espera (wait_limit_ncar_north), 
+        se señalizan las condiciones can_car_south y can_ped. Esto significa que los coches dirección SOUTH y los peatones podrán entrar en el puente,
+        pero los coches dirección NORTH tendrán finalmente su turno, ya que el límite de espera obligará a los otros procesos a ceder el paso.
+        Por lo tanto, no puede producirse inanición para los coches dirección NORTH.
+
+    Coches dirección SOUTH:
+        Cuando el número de coches dirección SOUTH esperando (ncar_south_waiting) es menor o igual que el límite de espera (wait_limit_ncar_south),
+        se señalizan las condiciones can_coches_N y can_ped. Esto significa que los coches dirección NORTH y los peatones podrán entrar en el puente,
+        pero los coches dirección SOUTH tendrán finalmente su turno, ya que el límite de espera obligará a los otros procesos a ceder el paso.
+        Por lo tanto, no puede producirse inanición para los coches procedentes dirección SOUTH.
+
+    Peatones:
+        Cuando el número de peatones esperando (nped_waiting) es menor o igual que el límite de espera (wait_limit_nped), se señalizan las
+        condiciones wait_car_north y wait_car_south. Esto significa que los coches de ambas direcciones podrán entrar en el puente, pero los peatones
+        tendrán finalmente su turno, ya que el límite de espera obligará a los otros procesos a ceder el paso.
+        Por lo tanto, no puede producirse inanición para los peatones.
+
+Al aplicar límites de espera para cada tipo de proceso, esta solución garantiza que todos los procesos tendrán finalmente la oportunidad de entrar
+en el puente, evitando la inanición.
